@@ -1,0 +1,139 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ==================================================================
+       ALL DIMENSIONS IN METRES. Values marked [POSTER] come straight from
+       section 2A of your design sheet. Values marked [PLACEHOLDER] are the
+       things section 2B intentionally left open.
+       ================================================================== -->
+
+  <!-- ========== Base ========== -->
+  <xacro:property name="base_radius"        value="0.1775"/>   <!-- [POSTER] 17.75 cm -->
+  <xacro:property name="base_height"        value="0.09"/>     <!-- [PLACEHOLDER] -->
+  <xacro:property name="ground_clearance"   value="0.015"/>    <!-- [PLACEHOLDER] -->
+  <xacro:property name="base_mass"          value="2.5"/>      <!-- [PLACEHOLDER] Kobuki ~2.35 kg dry -->
+
+  <!-- ========== Top deck ========== -->
+  <xacro:property name="deck_radius"        value="0.1775"/>   <!-- [POSTER] hex edge = R = circumradius -->
+  <xacro:property name="deck_thickness"     value="0.010"/>    <!-- [PLACEHOLDER] -->
+  <xacro:property name="deck_top_z"         value="0.14"/>     <!-- [POSTER] arm mounting height 14 cm -->
+  <xacro:property name="deck_mass"          value="0.30"/>     <!-- [PLACEHOLDER] -->
+
+  <!-- ========== Arm mount geometry ========== -->
+  <xacro:property name="arm_offset_fwd"     value="0.095"/>    <!-- [POSTER] 9.5 cm -->
+  <xacro:property name="arm_offset_lat"     value="0.08875"/>  <!-- [POSTER] +/- 8.875 cm, S = 17.75 cm -->
+  <!-- derived r = sqrt(0.095^2 + 0.08875^2) = 0.1300 m  [POSTER: 13 cm] -->
+
+  <!-- ========== Arm link lengths ========== -->
+  <xacro:property name="riser_h0"           value="0.04"/>     <!-- [POSTER] h0 = 4 cm   (J1 to J2) -->
+  <xacro:property name="upper_arm_L1"       value="0.16"/>     <!-- [POSTER] L1 = 16 cm  (J2 to J3) -->
+  <xacro:property name="forearm_L2"         value="0.16"/>     <!-- [POSTER] L2 = 16 cm  (J3 to J4) -->
+
+  <xacro:property name="link_radius"        value="0.018"/>
+  <xacro:property name="housing_radius"     value="0.026"/>    <!-- joint housings, so articulation is visible -->
+  <xacro:property name="housing_length"     value="0.044"/>
+
+  <xacro:property name="riser_mass"         value="0.15"/>     <!-- [PLACEHOLDER] -->
+  <xacro:property name="upper_arm_mass"     value="0.20"/>     <!-- [PLACEHOLDER] -->
+  <xacro:property name="forearm_mass"       value="0.18"/>     <!-- [PLACEHOLDER] -->
+
+  <!-- ========== Wrist + 2-finger gripper ==========
+       The wrist pitch IS J4, so the arm stays 4-DOF as per panel 1B. The
+       finger joints are gripper DOF, counted separately, the same way any
+       commercial arm quotes "6-DOF plus gripper". All [PLACEHOLDER]:
+       section 2B leaves jaw design open. -->
+  <xacro:property name="wrist_len"          value="0.030"/>
+  <xacro:property name="wrist_radius"       value="0.020"/>
+  <xacro:property name="wrist_mass"         value="0.06"/>
+
+  <xacro:property name="palm_len"           value="0.030"/>
+  <xacro:property name="palm_x"             value="0.050"/>
+  <xacro:property name="palm_y"             value="0.075"/>
+  <xacro:property name="palm_mass"          value="0.08"/>
+
+  <xacro:property name="finger_len"         value="0.055"/>
+  <xacro:property name="finger_thk"         value="0.012"/>    <!-- along the closing axis (Y) -->
+  <xacro:property name="finger_wid"         value="0.028"/>    <!-- across (X) -->
+  <xacro:property name="finger_mass"        value="0.025"/>
+  <xacro:property name="finger_stroke"      value="0.035"/>    <!-- per finger, so 7.0 cm max opening -->
+
+  <!-- Grasp point sits between the finger pads, 60% down their length -->
+  <xacro:property name="grasp_offset"       value="${palm_len + 0.6*finger_len}"/>
+
+  <!-- ========== Joint limits ========== -->
+  <!-- [PLACEHOLDER] Section 2B leaves per-axis limits open. -->
+  <xacro:property name="j1_lower"  value="-1.5708"/>
+  <xacro:property name="j1_upper"  value="1.5708"/>
+  <xacro:property name="j2_lower"  value="-1.5708"/>
+  <xacro:property name="j2_upper"  value="1.5708"/>
+  <xacro:property name="j3_lower"  value="-2.3562"/>
+  <xacro:property name="j3_upper"  value="2.3562"/>
+  <xacro:property name="j4_lower"  value="-2.0000"/>
+  <xacro:property name="j4_upper"  value="2.0000"/>
+  <xacro:property name="joint_effort"    value="5.0"/>
+  <xacro:property name="joint_velocity"  value="2.0"/>
+  <xacro:property name="joint_damping"   value="0.15"/>
+  <xacro:property name="joint_friction"  value="0.05"/>
+  <xacro:property name="finger_effort"   value="25.0"/>   <!-- N, prismatic -->
+  <xacro:property name="finger_velocity" value="0.10"/>   <!-- m/s -->
+
+  <!-- ========== HOME POSE ==========
+       Arms parked folded back and up: clear of the table, clear of each
+       other, and visibly articulated so the 4 DOF read at a glance. -->
+  <xacro:property name="home_j1" value="0.0"/>
+  <xacro:property name="home_j2" value="-0.55"/>
+  <xacro:property name="home_j3" value="1.35"/>
+  <xacro:property name="home_j4" value="0.50"/>
+
+  <!-- ========== Sensor mast ==========
+       Heights are specified ABOVE GROUND LEVEL and the mounting offsets are
+       derived from them, so changing a target height here is all you need. -->
+  <xacro:property name="mast_offset_r"      value="0.14"/>     <!-- [POSTER] 14 cm from O -->
+  <xacro:property name="mast_offset_x"      value="-0.07"/>
+  <xacro:property name="mast_offset_y"      value="0.1212"/>   <!-- sqrt(0.14^2 - 0.07^2), so r = 14 cm exactly -->
+  <xacro:property name="mast_height"        value="0.31"/>     <!-- post length above the deck -->
+  <xacro:property name="mast_radius"        value="0.010"/>
+  <xacro:property name="mast_mass"          value="0.10"/>
+
+  <xacro:property name="camera_height_agl"  value="0.46"/>     <!-- [SPEC] camera 46 cm above ground -->
+  <xacro:property name="lidar_height_agl"   value="0.32"/>     <!-- [SPEC] LiDAR 30-35 cm above ground -->
+
+  <!-- mast_head centre sits at deck_top_z + mast_height above ground -->
+  <xacro:property name="mast_head_agl"      value="${deck_top_z + mast_height}"/>
+  <xacro:property name="camera_z_off"       value="${camera_height_agl - mast_head_agl}"/>
+  <xacro:property name="lidar_z_off"        value="${lidar_height_agl - mast_head_agl}"/>
+
+  <!-- ========== INERTIA MACROS ========== -->
+
+  <xacro:macro name="cylinder_inertial" params="mass radius length *origin">
+    <inertial>
+      <xacro:insert_block name="origin"/>
+      <mass value="${mass}"/>
+      <inertia
+        ixx="${mass*(3.0*radius*radius + length*length)/12.0}" ixy="0.0" ixz="0.0"
+        iyy="${mass*(3.0*radius*radius + length*length)/12.0}" iyz="0.0"
+        izz="${mass*radius*radius/2.0}"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:macro name="box_inertial" params="mass x y z *origin">
+    <inertial>
+      <xacro:insert_block name="origin"/>
+      <mass value="${mass}"/>
+      <inertia
+        ixx="${mass*(y*y + z*z)/12.0}" ixy="0.0" ixz="0.0"
+        iyy="${mass*(x*x + z*z)/12.0}" iyz="0.0"
+        izz="${mass*(x*x + y*y)/12.0}"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- ========== MATERIALS ========== -->
+  <material name="kobuki_dark"><color rgba="0.15 0.16 0.18 1.0"/></material>
+  <material name="deck_grey">  <color rgba="0.55 0.57 0.60 1.0"/></material>
+  <material name="arm_teal">   <color rgba="0.10 0.55 0.60 1.0"/></material>
+  <material name="joint_amber"><color rgba="0.90 0.60 0.15 1.0"/></material>
+  <material name="finger_dark"><color rgba="0.22 0.24 0.26 1.0"/></material>
+  <material name="pad_green">  <color rgba="0.20 0.65 0.35 1.0"/></material>
+  <material name="sensor_red"> <color rgba="0.80 0.20 0.20 1.0"/></material>
+
+</robot>

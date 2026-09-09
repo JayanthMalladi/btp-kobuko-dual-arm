@@ -1,0 +1,62 @@
+<?xml version="1.0"?>
+<robot name="dual_arm_kobuki" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:include filename="$(find dual_arm_kobuki)/urdf/common.xacro"/>
+  <xacro:include filename="$(find dual_arm_kobuki)/urdf/base.xacro"/>
+  <xacro:include filename="$(find dual_arm_kobuki)/urdf/arm.xacro"/>
+  <xacro:include filename="$(find dual_arm_kobuki)/urdf/sensors.xacro"/>
+
+  <!-- ================= ASSEMBLY ================= -->
+  <xacro:kobuki_base/>
+  <xacro:sensor_mast/>
+
+  <!-- +Y is the robot's left. Separation between the two = 17.75 cm [POSTER] -->
+  <xacro:four_dof_arm prefix="left"  reflect="1"/>
+  <xacro:four_dof_arm prefix="right" reflect="-1"/>
+
+  <!-- ================= GAZEBO SYSTEM PLUGINS ================= -->
+
+  <gazebo>
+    <plugin filename="gz-sim-joint-state-publisher-system"
+            name="gz::sim::systems::JointStatePublisher">
+      <topic>joint_states</topic>
+    </plugin>
+  </gazebo>
+
+  <!-- Position controllers. Every arm and finger joint gets one, so the
+       model holds pose under gravity and every DOF is drivable from a ROS
+       topic without ros2_control. -->
+  <xacro:macro name="gz_position_controller" params="joint p i d imax cmax">
+    <gazebo>
+      <plugin filename="gz-sim-joint-position-controller-system"
+              name="gz::sim::systems::JointPositionController">
+        <joint_name>${joint}</joint_name>
+        <topic>/arm/${joint}/cmd_pos</topic>
+        <p_gain>${p}</p_gain>
+        <i_gain>${i}</i_gain>
+        <d_gain>${d}</d_gain>
+        <i_max>${imax}</i_max>
+        <i_min>${-imax}</i_min>
+        <cmd_max>${cmax}</cmd_max>
+        <cmd_min>${-cmax}</cmd_min>
+      </plugin>
+    </gazebo>
+  </xacro:macro>
+
+  <!-- Arm joints (4 DOF each) -->
+  <xacro:gz_position_controller joint="left_j1"  p="6.0" i="0.05" d="0.6" imax="1.0" cmax="${joint_effort}"/>
+  <xacro:gz_position_controller joint="left_j2"  p="9.0" i="0.10" d="0.9" imax="1.0" cmax="${joint_effort}"/>
+  <xacro:gz_position_controller joint="left_j3"  p="7.0" i="0.08" d="0.7" imax="1.0" cmax="${joint_effort}"/>
+  <xacro:gz_position_controller joint="left_j4"  p="4.0" i="0.05" d="0.4" imax="1.0" cmax="${joint_effort}"/>
+  <xacro:gz_position_controller joint="right_j1" p="6.0" i="0.05" d="0.6" imax="1.0" cmax="${joint_effort}"/>
+  <xacro:gz_position_controller joint="right_j2" p="9.0" i="0.10" d="0.9" imax="1.0" cmax="${joint_effort}"/>
+  <xacro:gz_position_controller joint="right_j3" p="7.0" i="0.08" d="0.7" imax="1.0" cmax="${joint_effort}"/>
+  <xacro:gz_position_controller joint="right_j4" p="4.0" i="0.05" d="0.4" imax="1.0" cmax="${joint_effort}"/>
+
+  <!-- Finger joints (prismatic, stiff: they must hold a grasp) -->
+  <xacro:gz_position_controller joint="left_finger_a"  p="600.0" i="8.0" d="20.0" imax="12.0" cmax="${finger_effort}"/>
+  <xacro:gz_position_controller joint="left_finger_b"  p="600.0" i="8.0" d="20.0" imax="12.0" cmax="${finger_effort}"/>
+  <xacro:gz_position_controller joint="right_finger_a" p="600.0" i="8.0" d="20.0" imax="12.0" cmax="${finger_effort}"/>
+  <xacro:gz_position_controller joint="right_finger_b" p="600.0" i="8.0" d="20.0" imax="12.0" cmax="${finger_effort}"/>
+
+</robot>
