@@ -374,7 +374,8 @@ shadows, physics at 1 ms step / real-time factor 1.0, and the `Physics`, `UserCo
 | `starting_base` | (0.41, 0.02, 0) | z = 0.20 m, 30x28 cm top on a 12x12x18 cm pedestal | Holds `object_min`; positioned so every pick waypoint stays under 75% reach (see §7) |
 | `destination_base` | (0.22, 0.30, 0) | z = 0.20 m, 24x24 cm top on a 10x10x18 cm pedestal | Place target |
 | `object_min` | (0.31, 0.09, 0.225) | — | 5 cm dia x 5 cm tall cylinder, 0.08 kg, mu=1.6. **The pick-and-place demo object** — fits the 7 cm jaw with 2 cm margin. |
-| `object_max` | (0.44, 0.02, 0.325) | — | 18 cm dia x 25 cm tall cylinder, 0.50 kg (payload ceiling), mu=1.6. **Not part of the demo** — see §9. |
+| `object_max` | (0.44, 0.02, 0.325) | — | 18 cm dia x 25 cm tall cylinder, 0.50 kg (payload ceiling), mu=1.6. **Not part of the demo** — see §9; kept unchanged as a documented negative result. |
+| `object_bimanual` | (0.28, 0, 0.24) | — | Tray body (22x8x3 cm) with two 3 cm-dia x 8 cm vertical handle posts at y=±0.10, 0.50 kg total, mu=1.6. The Q-A(a) co-manipulation target — see `docs/bimanual/IMPLEMENTATION.md`. Also not staged for a demo sequencer yet. |
 
 The two objects deliberately sit at the two extremes of the size/mass envelope the design sheet
 specifies, so the world doubles as a validation fixture for "smallest reachable/grippable object"
@@ -401,13 +402,23 @@ arm can't push laterally on an object in front of the robot. Yawing both arms in
 0.2675 m is the floor — any closer and the object collides with the deck edge. So the best
 available squeeze is ~46% of applied actuator force, with the base pressed right up against the
 object, and it's an **angled** friction pinch (contact normal not lateral, separation not fixed) —
-not the `p_R - p_L = G * n_hat` opposed-grasp model that force closure normally assumes. Probably
-workable at mu=1.6 with a 500 g object, but unproven and should be resolved before locking any
-bimanual actuator sizing.
+not the `p_R - p_L = G * n_hat` opposed-grasp model that force closure normally assumes.
+
+**Correction:** the force-fraction framing above understates it. `docs/bimanual/README.md` §2b
+redoes this with the forward component included (not just discarded) and finds the two palms'
+forward pushes *add*, with no backstop to react against — at the object's actual 0.44 m position
+this is not a viable grasp at any mu, not merely a weak one at mu=1.6. This is **infeasible**, not
+inefficient.
 
 **Arm separation is 2.5 mm short of the object diameter.** `S = 17.75 cm` (arm separation) vs.
 `object_max diameter = 18.00 cm` — the grippers physically cannot approach the large object in
 parallel even before considering the jaw-opening limit above.
+
+**Resolved.** Bimanual co-manipulation was retargeted at a new object (`object_bimanual`, §8 above)
+with vertical handle posts rather than a same-surface squeeze on `object_max`, plus decisions on
+motion-coupling strictness and grasp physics. `object_max` stays as-is, deliberately, as the
+negative-result reference this section documents. See `docs/bimanual/README.md` (analysis) and
+`docs/bimanual/IMPLEMENTATION.md` (what was built and why) for the full record.
 
 **LiDAR forward-sector self-occlusion.** At 32 cm AGL on the rear mast, the arms occupy roughly
 ±34° bearings at 15.7 cm range and the mast posts themselves occupy ±90° at 12.1 cm — the forward

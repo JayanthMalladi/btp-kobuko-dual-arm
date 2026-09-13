@@ -59,4 +59,28 @@
   <xacro:gz_position_controller joint="right_finger_a" p="600.0" i="8.0" d="20.0" imax="12.0" cmax="${finger_effort}"/>
   <xacro:gz_position_controller joint="right_finger_b" p="600.0" i="8.0" d="20.0" imax="12.0" cmax="${finger_effort}"/>
 
+  <!-- ================= Q-C: SINGLE-SIDE WELD FALLBACK =================
+       docs/bimanual/README.md Q-C: friction alone (section 8 above) may be
+       marginal for a bimanual carry, but welding BOTH palms is actively
+       harmful - it rigidly connects a mechanism whose own joints already
+       disagree about the object's motion (see docs/bimanual/IMPLEMENTATION.md
+       pair_mobility findings), and every disagreement becomes an impulse the
+       stiff weld must absorb. The chosen fallback welds only the LEFT palm;
+       the right stays friction-only, so the loop the two arms form stays
+       open and the right arm can never fight a fixed weld. This plugin is
+       inert until something publishes to the attach/detach topics below -
+       nothing does yet, since there is no bimanual demo sequencer. Treat
+       the element names as UNTESTED against the installed gz-sim version,
+       same caveat as the existing single-arm snippet in README section 8. -->
+  <gazebo>
+    <plugin filename="gz-sim-detachable-joint-system"
+            name="gz::sim::systems::DetachableJoint">
+      <parent_link>left_palm</parent_link>
+      <child_model>object_bimanual</child_model>
+      <child_link>link</child_link>
+      <attach_topic>/grasp/left/attach</attach_topic>
+      <detach_topic>/grasp/left/detach</detach_topic>
+    </plugin>
+  </gazebo>
+
 </robot>

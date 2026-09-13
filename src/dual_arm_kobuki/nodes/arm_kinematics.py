@@ -142,6 +142,202 @@ def reach_fraction(target, arm="left", psi=2.35):
     return math.hypot(s_w, h_w) / (L1 + L2)
 
 
+# ======================================================================
+# Bimanual co-manipulation core (decision-independent, docs/bimanual/README.md
+# section 5). These functions are pure extensions of the single-arm ik/fk
+# above: an object pose plus per-arm handle offsets in, per-arm joint targets
+# out. See docs/bimanual/IMPLEMENTATION.md for the full derivation and the
+# architecture decisions (Q-A/Q-B/Q-C) that this module now assumes.
+# ======================================================================
+
+# Q-A(a) resolved: co-manipulation targets a handle-post interface, not a
+# rigid squeeze on the object's own surface (docs/bimanual/README.md section
+# 2a - a rigid squeeze cannot carry the object at all). Mirrors the
+# object_bimanual model in worlds/manipulation_task.sdf and the nominal pose
+# used for the workspace sweep in section 3 of the same doc.
+BIMANUAL_OBJ_NOMINAL = (0.28, 0.0, 0.24, 0.0)      # (x, y, z, yaw), metres/rad
+BIMANUAL_HANDLE_SEP = 0.20                          # metres, section 3 sweep
+BIMANUAL_OFFSETS = {
+    "left":  (0.0,  BIMANUAL_HANDLE_SEP / 2.0, 0.0),
+    "right": (0.0, -BIMANUAL_HANDLE_SEP / 2.0, 0.0),
+}
+BIMANUAL_PSI = 2.35                                 # reuse the single-arm diagonal approach
+
+# Link-to-link contact threshold used in the section 3 clearance sweep
+# ("min link-to-link gap 9.3-17.7 cm against a 5.2 cm contact threshold").
+CLEARANCE_THRESHOLD = 0.052
+
+
+def grasp_targets(obj_pose, offsets):
+    """
+    Map an object pose to each arm's grasp-frame target.
+
+    obj_pose : (x, y, z, yaw) of the object frame in the base frame. Yaw-only
+               by design - neither arm can reach an object roll/pitch offset
+               (docs/bimanual/README.md section 2a: gripper ŷ is always
+               horizontal), so this function does not accept them.
+    offsets  : {"left": (dx, dy, dz), "right": (dx, dy, dz)} handle positions
+               in the object's own (yaw-rotated) frame, e.g. BIMANUAL_OFFSETS.
+
+    Returns {"left": (x, y, z), "right": (x, y, z)} in the base frame.
+    """
+    x, y, z, yaw = obj_pose
+    c, s = math.cos(yaw), math.sin(yaw)
+    targets = {}
+    for arm, (dx, dy, dz) in offsets.items():
+        targets[arm] = (x + c * dx - s * dy, y + s * dx + c * dy, z + dz)
+    return targets
+
+
+def pair_ik(obj_pose, offsets, psi_l, psi_r, elbow="auto"):
+    """ik() for both arms against one object pose. Raises Unreachable tagged
+    with which arm failed - never returns a one-sided solution."""
+    targets = grasp_targets(obj_pose, offsets)
+    try:
+        qL = ik(targets["left"], "left", psi=psi_l, elbow=elbow)
+    except Unreachable as e:
+        raise Unreachable(f"left arm: {e}")
+    try:
+        qR = ik(targets["right"], "right", psi=psi_r, elbow=elbow)
+    except Unreachable as e:
+        raise Unreachable(f"right arm: {e}")
+    return qL, qR
+
+
+def pair_reach(obj_pose, offsets, psi_l, psi_r):
+    """reach_fraction() for both arms against one object pose."""
+    targets = grasp_targets(obj_pose, offsets)
+    return (
+        reach_fraction(targets["left"], "left", psi_l),
+        reach_fraction(targets["right"], "right", psi_r),
+    )
+
+
+def pair_feasible(obj_pose, offsets, psi_l, psi_r, elbow="auto",
+                   reach_limit=0.9, clearance=CLEARANCE_THRESHOLD):
+    """True iff both arms reach their handle inside joint limits, stay under
+    reach_limit of the 2R envelope (docs/bimanual/README.md section 3: above
+    ~0.9 the solve is poorly conditioned), and the resulting grasp frames
+    stay further apart than the contact-clearance threshold."""
+    try:
+        qL, qR = pair_ik(obj_pose, offsets, psi_l, psi_r, elbow)
+    except Unreachable:
+        return False
+    fracL, fracR = pair_reach(obj_pose, offsets, psi_l, psi_r)
+    if fracL >= reach_limit or fracR >= reach_limit:
+        return False
+    gap = math.dist(fk(qL, "left"), fk(qR, "right"))
+    return gap > clearance
+
+
+def coupling_error(qL, qR, offsets):
+    """
+    Q-B feedforward + FK monitor: FK-derived measured handle separation minus
+    the nominal separation implied by offsets. Zero means the two arms are
+    exactly where a rigid grasp requires them to be; a growing magnitude means
+    the arms are drifting apart (or "fighting", see docs/bimanual/README.md
+    Q-C on welding) faster than intended. Sign is measured-minus-nominal, so
+    positive means the grasp frames are further apart than the object allows.
+    """
+    pL, pR = fk(qL, "left"), fk(qR, "right")
+    dx, dy, dz = (offsets["left"][i] - offsets["right"][i] for i in range(3))
+    nominal = math.sqrt(dx * dx + dy * dy + dz * dz)
+    measured = math.dist(pL, pR)
+    return measured - nominal
+
+
+def jacobian(q, arm="left", eps=1e-6):
+    """
+    6x4 grasp-frame twist Jacobian: d(x,y,z,wx,wy,wz)/d(j1,j2,j3,j4).
+
+    Linear rows come from central-difference on fk() - the closed-form fk
+    above has no separate analytic derivative, and 4 joints make this cheap.
+
+    Angular rows are analytic, straight from the mechanism identity derived
+    in docs/bimanual/README.md section 2a: the grasp frame's angular velocity
+    is  omega = j1_dot * z_hat + psi_dot * y_EE_hat,  where
+    y_EE_hat = Rz(j1) * y_hat = (-sin(j1), cos(j1), 0)  is always horizontal,
+    and psi_dot = j2_dot + j3_dot + j4_dot since J2/J3/J4 share one axis. So
+    d(omega)/d(j1) = z_hat and d(omega)/d(j2) = d(omega)/d(j3) = d(omega)/d(j4)
+    = y_EE_hat - no finite-differencing needed for the angular half, and no
+    risk of the eps-cancellation error a numeric rotation derivative would have.
+
+    Returned as 6 rows (vx,vy,vz,wx,wy,wz) x 4 columns (j1,j2,j3,j4).
+    """
+    j1 = q[0]
+    p0 = fk(q, arm)
+    lin_cols = []
+    for i in range(4):
+        qp, qm = list(q), list(q)
+        qp[i] += eps
+        qm[i] -= eps
+        fp, fm = fk(qp, arm), fk(qm, arm)
+        lin_cols.append(tuple((fp[k] - fm[k]) / (2.0 * eps) for k in range(3)))
+
+    z_hat = (0.0, 0.0, 1.0)
+    y_ee = (-math.sin(j1), math.cos(j1), 0.0)
+    ang_cols = [z_hat, y_ee, y_ee, y_ee]
+
+    rows = []
+    for k in range(3):
+        rows.append([lin_cols[c][k] for c in range(4)])
+    for k in range(3):
+        rows.append([ang_cols[c][k] for c in range(4)])
+    return rows
+
+
+def _matrix_rank(m, tol=1e-9):
+    """Rank via Gauss-Jordan elimination with partial pivoting. No numpy
+    dependency - this whole module is intentionally dependency-free."""
+    m = [row[:] for row in m]
+    rows, cols = len(m), len(m[0]) if m else 0
+    rank = 0
+    for col in range(cols):
+        pivot = None
+        best = tol
+        for r in range(rank, rows):
+            if abs(m[r][col]) > best:
+                best = abs(m[r][col])
+                pivot = r
+        if pivot is None:
+            continue
+        m[rank], m[pivot] = m[pivot], m[rank]
+        pv = m[rank][col]
+        m[rank] = [v / pv for v in m[rank]]
+        for r in range(rows):
+            if r != rank and abs(m[r][col]) > tol:
+                f = m[r][col]
+                m[r] = [a - f * b for a, b in zip(m[r], m[rank])]
+        rank += 1
+        if rank == rows:
+            break
+    return rank
+
+
+def pair_mobility(qL, qR):
+    """
+    Numeric rank of [J_L | -J_R], the 6x8 combined twist Jacobian of the two
+    grasp frames stacked as one constraint: J_L @ qL_dot - J_R @ qR_dot. This
+    is the "equal grasp-frame twist" constraint model - it does not apply a
+    lever-arm correction for the two handles being ~20 cm apart, so treat its
+    output as a diagnostic rank check, not a literal object-DOF count (that
+    count, with the lever arm included, is worked out by hand in
+    docs/bimanual/README.md section 2a and IMPLEMENTATION.md using the
+    standard Grubler mobility formula: object DOF = joints + 6 - constraints).
+
+    Historically this is exactly the computation that would have caught the
+    Q-C welding failure ahead of time: a rank-6 constraint against only 8
+    joint DOF leaves 2 spare DOF for the two arms to disagree about (their
+    individual redundancy inside a shared 2-DOF object motion), and every
+    disagreement becomes a constraint violation a rigid weld must absorb as
+    an impulse.
+    """
+    JL = jacobian(qL, "left")
+    JR = jacobian(qR, "right")
+    M = [JL[r] + [-v for v in JR[r]] for r in range(6)]
+    return _matrix_rank(M)
+
+
 if __name__ == "__main__":
     import random
 
@@ -169,3 +365,40 @@ if __name__ == "__main__":
             tested += 1
     print(f"  solved {tested}, unreachable {skipped}")
     print(f"  worst position error: {worst*1e6:.3f} micrometres")
+
+    print()
+    print("=== Bimanual core self-check (docs/bimanual/README.md section 5) ===")
+    obj = BIMANUAL_OBJ_NOMINAL
+    offsets = BIMANUAL_OFFSETS
+    targets = grasp_targets(obj, offsets)
+    print(f"  object pose {obj}, handle separation {BIMANUAL_HANDLE_SEP*100:.0f} cm")
+    print(f"  left handle target  {tuple(round(v, 4) for v in targets['left'])}")
+    print(f"  right handle target {tuple(round(v, 4) for v in targets['right'])}")
+
+    try:
+        qL, qR = pair_ik(obj, offsets, BIMANUAL_PSI, BIMANUAL_PSI)
+        fracL, fracR = pair_reach(obj, offsets, BIMANUAL_PSI, BIMANUAL_PSI)
+        feasible = pair_feasible(obj, offsets, BIMANUAL_PSI, BIMANUAL_PSI)
+        gap = math.dist(fk(qL, "left"), fk(qR, "right"))
+        print(f"  qL {tuple(round(v, 4) for v in qL)}  reach {fracL*100:.1f}%")
+        print(f"  qR {tuple(round(v, 4) for v in qR)}  reach {fracR*100:.1f}%")
+        print(f"  grasp-frame gap {gap*100:.2f} cm, pair_feasible={feasible}")
+        print(f"  coupling_error at nominal (should be ~0): "
+              f"{coupling_error(qL, qR, offsets)*1000:+.3f} mm")
+
+        mob_post = pair_mobility(qL, qR)
+        print(f"  pair_mobility (post/revolute handle grasp) rank={mob_post} "
+              f"-> {8 - mob_post} spare joint DOF beyond the equal-twist constraint")
+    except Unreachable as e:
+        print(f"  PLAN INFEASIBLE at nominal pose: {e}")
+
+    # Rigid-weld comparison: force both arms to the SAME orientation (psi
+    # chosen so j1_L != j1_R, i.e. NOT the parallel-heading singularity) to
+    # reproduce the section 2a "2 admissible motions" rigid-grasp finding.
+    try:
+        qL2, qR2 = pair_ik(obj, offsets, BIMANUAL_PSI, BIMANUAL_PSI, elbow="up")
+        mob_rigid = pair_mobility(qL2, qR2)
+        print(f"  pair_mobility (elbow-up both arms, same psi) rank={mob_rigid} "
+              f"-> {8 - mob_rigid} spare DOF")
+    except Unreachable as e:
+        print(f"  rigid-weld comparison pose infeasible: {e}")

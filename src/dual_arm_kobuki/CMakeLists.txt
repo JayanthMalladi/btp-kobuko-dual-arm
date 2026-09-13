@@ -13,6 +13,7 @@ install(
     nodes/pose_cmd.py
     nodes/arm_kinematics.py
     nodes/pick_and_place.py
+    nodes/coupling_monitor.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

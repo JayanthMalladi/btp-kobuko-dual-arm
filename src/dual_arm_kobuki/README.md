@@ -238,7 +238,13 @@ plane, so it cannot push laterally on something in front of the robot. Yawing
 J1 to -90 deg aims the hand sideways but then it can only reach x = 9.5 cm,
 and the object is at 44 cm.
 
-Partial convergence is available by yawing both arms inward:
+**Correction (see `docs/bimanual/README.md` section 2b):** the table below,
+kept for the record, frames this as an *inefficient* squeeze. A closer force
+analysis shows it is worse than inefficient - at the object's actual position
+the two palms' forward force components dominate and add, there is no
+backstop, and the arm separation is physically narrower than the object (next
+paragraph). It is **infeasible**, not merely a low force fraction. Partial
+convergence numbers, for the record:
 
 | Object standoff | J1 convergence | Inward force fraction |
 |---|---|---|
@@ -246,16 +252,20 @@ Partial convergence is available by yawing both arms inward:
 | 0.35 m | -19.2 deg | 33% |
 | 0.2675 m | -27.2 deg | 46% |
 
-0.2675 m is the floor - any closer and the object hits the deck edge. So the
-best available squeeze is ~46% of applied force, with the base pressed right
-up against the object. Probably workable with mu = 1.6 and 500 g, but it is an
-angled friction pinch, not the opposed grasp `p_R - p_L = G*n_hat` assumes:
-n_hat is not lateral and the separation is not fixed. Resolve before locking
-actuators.
+0.2675 m is the floor - any closer and the object hits the deck edge.
 
 **Arm separation vs max object.** S = 17.75 cm, object = 18.00 cm. The
 grippers have 2.5 mm less lateral span than the object needs, so they cannot
 approach parallel.
+
+**Resolved:** bimanual co-manipulation now targets a *different* object,
+`object_bimanual` in `worlds/manipulation_task.sdf`, with two vertical
+handle posts instead of a bare-surface squeeze on `object_max`. `object_max`
+stays in the world unchanged, on purpose, as the documented negative result
+above. Full rationale, the math behind it, and the two other architecture
+decisions that went with it (coupling strictness, grasp physics) are in
+[`docs/bimanual/README.md`](docs/bimanual/README.md) and
+[`docs/bimanual/IMPLEMENTATION.md`](docs/bimanual/IMPLEMENTATION.md).
 
 **LiDAR self-occlusion.** At 32 cm AGL on the rear mast, the arms sit at
 15.7 cm on +-34 deg bearings and the mast posts at 12.1 cm on +-90 deg. The

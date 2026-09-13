@@ -3,9 +3,13 @@
 Working notes on making `dual_arm_kobuki` actually behave as a dual-arm *collaborator*: both grippers
 on one object at the same time, arms mutually constrained.
 
-**Status: nothing here is built.** This is analysis plus three unresolved design questions. No code,
-world, or URDF changes have been made. See [`../SPEC.md`](../SPEC.md) for what *is* implemented (all of
-it single-arm) and [`../RUNNING.md`](../RUNNING.md) for how to run it.
+**Status: the three questions in section 4 are resolved and built.** This file is still the
+analysis that led to those decisions - it is kept as written, unedited below this notice, because
+the reasoning is still the reasoning. For what got built, why those specific options were picked
+over the alternatives in the tables below, the full math behind the new code (including numbers
+actually run, not estimated), and what is explicitly still not built, see
+[`IMPLEMENTATION.md`](IMPLEMENTATION.md). See [`../SPEC.md`](../SPEC.md) for the rest of the
+single-arm implementation and [`../RUNNING.md`](../RUNNING.md) for how to run it.
 
 ---
 
@@ -125,14 +129,16 @@ Consequences:
 
 ## 4. Open questions
 
-Deliberately unresolved. Each lists plausible solutions, cost, what it unlocks, and what evidence would
-settle it.
+**Resolved — see [`IMPLEMENTATION.md`](IMPLEMENTATION.md).** Left below unedited as the option
+survey that produced the decision; the chosen row in each table is marked.
+
+Each table lists plausible solutions, cost, what it unlocks, and what evidence would settle it.
 
 ### Q-A — Mechanism: how to make barrel-style co-manipulation possible at all
 
 | Option | Cost | Unlocks | Settled by |
 |---|---|---|---|
-| **(a) Handle posts on a shared object** | Modify `object_max` in the SDF; ~zero code | The ~690-combination feasible set, and (with *cylindrical* posts) the 4-DOF closed chain of §2a | Paired-IK sweep + a lift-and-carry sim |
+| **(a) Handle posts on a shared object — CHOSEN** | Added a *new* `object_bimanual` model rather than editing `object_max` in place, so the negative result in §2b stays intact as its own reference object; ~zero arm code | The ~690-combination feasible set, and (with *cylindrical* posts) the 4-DOF closed chain of §2a | Paired-IK sweep + a lift-and-carry sim — see `IMPLEMENTATION.md` for the sweep numbers actually run |
 | **(b) 5th DOF (wrist roll)** | Breaks the planar-3R decomposition — `ik()` must be rewritten, +2 controllers and bridge topics, invalidates SPEC §6 | True squeeze grasps *and* the missing roll DOF, raising the rigid closed chain from 2 to 4 DOF | Rank of `[J_L │ −J_R]` before/after |
 | **(c) Deck as backstop** | Cheap | — | **Dead end**: deck edge is at r = 0.1775 and the barrel is 18 cm dia, so the object centre lands at x ≈ 0.27 — inside the J1 dead zone and colliding with both risers |
 | **(d) Cradle / scoop from underneath** | `psi ≈ 0.5` gives upward palms; barrel rests on both forearms | A demo-able lift | Topple test: 25 cm tall × 0.5 kg on soft P=4..9 PIDs with no lateral capture. Viable as a demo, not as a grasp |
@@ -147,7 +153,7 @@ makes the *barrel specifically* work.
 | Option | Cost | Notes |
 |---|---|---|
 | **Feedforward only** — one object trajectory, one shared clock, one publish loop | Free | Arms cannot desynchronise, but nothing detects slip or lag. Only valid on the feasible manifold. Verify: FK-derived separation drift < 5 mm across the trajectory |
-| **Feedforward + FK monitor/abort** | Small | Subscribe `/joint_states`, run `fk()` on both arms, compare `‖p_L − p_R‖` against nominal, abort past threshold. Cheap, diagnostic, requires no control change. The pragmatic middle |
+| **Feedforward + FK monitor/abort — CHOSEN** | Small | Subscribe `/joint_states`, run `fk()` on both arms, compare `‖p_L − p_R‖` against nominal, abort past threshold. Cheap, diagnostic, requires no control change. The pragmatic middle. Built as `nodes/coupling_monitor.py` |
 | **Full internal-wrench compliance** | Large | `JointPositionController` cannot accept torque commands at all. Would need `gz-sim-joint-controller` in force mode (or ros2_control effort interfaces), joint-torque sensing, an arm Jacobian (absent from `arm_kinematics.py` today), and a grasp-matrix pseudoinverse to split internal from external wrench. `joint_effort = 5.0` N·m also saturates quickly |
 
 ### Q-C — Grasp physics in simulation
@@ -156,15 +162,16 @@ makes the *barrel specifically* work.
 |---|---|
 | **Friction only** (as the existing single-arm demo) | Honest and consistent. 0.5 kg needs only ~1.5 N normal force, but soft arm PIDs plus a 25 cm lever arm make it marginal |
 | **Weld both palms via `gz-sim-detachable-joint-system`** | **Actively harmful.** By §2a this welds a 2-DOF mechanism and then commands 8 independent position setpoints. DART resolves loops by constraint projection so it will not explode outright, but every inconsistency between the two arms' setpoints becomes a constraint violation the stiff weld absorbs as large impulses — jitter, drift, and genuine energy injection. This is the classic dual-arm "fighting" failure |
-| **Friction with weld fallback** | Best pragmatic option, **provided at most one weld is rigid** — e.g. weld the left palm and leave the right friction-only. That keeps the loop open and lets the right arm ride |
+| **Friction with weld fallback — CHOSEN** | Best pragmatic option, **provided at most one weld is rigid** — e.g. weld the left palm and leave the right friction-only. That keeps the loop open and lets the right arm ride. Built as a `DetachableJoint` plugin on `left_palm` only, in `urdf/robot.urdf.xacro` |
 
 ---
 
 ## 5. The decision-independent core
 
-These are identical no matter how Q-A/Q-B/Q-C resolve, so they can be built first without prejudging
-anything. All extend `nodes/arm_kinematics.py`, reusing the existing `ik`, `fk`, `shoulder`,
-`reach_fraction`, `Unreachable`, and `JOINT_LIMITS`:
+**Built — see `IMPLEMENTATION.md` for signatures actually shipped, the `jacobian()` derivation, and
+verified output.** These were identical no matter how Q-A/Q-B/Q-C resolved, so they were built
+first without prejudging anything. All extend `nodes/arm_kinematics.py`, reusing the existing `ik`,
+`fk`, `shoulder`, `reach_fraction`, `Unreachable`, and `JOINT_LIMITS`:
 
 ```
 grasp_targets(obj_pose, offsets)      -> {"left": (x,y,z), "right": (x,y,z)}
@@ -186,8 +193,16 @@ Whatever is built, the trajectory checker must sample **every step**, not every 
 
 ---
 
-## 6. Not decided here
+## 6. Not decided here (superseded — see below)
 
 Mechanism (Q-A), coupling strictness (Q-B), and grasp physics (Q-C) are all open. Until Q-A is
 answered, no world or URDF changes should be made — the shape of the shared object follows from that
 choice. The barrel stays in the world for now as a documented negative result.
+
+**Update: Q-A/Q-B/Q-C are now answered (section 4) and built (section 5).** The barrel (`object_max`)
+still stays in the world unchanged, still as the documented negative result — that part of this
+paragraph held. What changed is that a *second* object, `object_bimanual`, now carries the
+resolved Q-A(a) handle-post interface, so it, not the barrel, is what any future bimanual
+sequencer should target. `IMPLEMENTATION.md` section "Not built" lists what is still genuinely
+open — mainly the synchronized trajectory sequencer itself, which was out of scope for resolving
+these three questions.

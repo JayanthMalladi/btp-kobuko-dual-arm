@@ -165,8 +165,15 @@
          ENVELOPE EXTREME 2: LARGEST OBJECT  -  18 cm dia, 25 cm tall
          0.50 kg = the payload ceiling. NOT part of the pick-and-place
          demo: 18 cm exceeds the 7 cm jaw opening, so it is the bimanual
-         co-manipulation case, which is blocked on the convergence
-         question (see README section 9).
+         co-manipulation case.
+
+         KEPT DELIBERATELY UNCHANGED as a documented negative result: a
+         same-surface squeeze grasp on this object is structurally
+         infeasible with a no-roll, shared-pitch-axis 4-DOF arm, not just
+         inefficient. See docs/bimanual/README.md section 2b for the
+         force-fraction math and docs/bimanual/IMPLEMENTATION.md for the
+         Q-A decision this drove. object_bimanual below is the object that
+         co-manipulation actually targets.
          ============================================================ -->
     <model name="object_max">
       <pose>0.44 0.02 0.325 0 0 0</pose>
@@ -187,6 +194,93 @@
         </collision>
         <visual name="visual">
           <geometry><cylinder><radius>0.090</radius><length>0.250</length></cylinder></geometry>
+          <material>
+            <ambient>0.55 0.35 0.10 1</ambient>
+            <diffuse>0.82 0.54 0.16 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ============================================================
+         BIMANUAL CO-MANIPULATION OBJECT  -  Q-A(a) resolution.
+
+         A tray with two vertical cylindrical handle posts, instead of a
+         bare cylinder. Each post is a revolute grasp interface: the
+         gripper closes around a 3 cm-diameter post (well inside the 7 cm
+         jaw opening) rather than squeezing the object's own outer
+         surface, so each jaw can spin freely about its post's own
+         vertical axis. That is what makes horizontal carry kinematically
+         possible at all - see docs/bimanual/README.md section 2a. A rigid
+         squeeze on object_max above cannot do this.
+
+         Geometry mirrors nodes/arm_kinematics.py BIMANUAL_OBJ_NOMINAL /
+         BIMANUAL_HANDLE_SEP exactly, which is why both numbers must be
+         changed together (see docs/bimanual/IMPLEMENTATION.md):
+           object centre  (0.28, 0, 0.24)  - section 3 workspace-sweep centre
+           handle separation  0.20 m       - section 3 workspace-sweep value
+         Total mass 0.50 kg matches the object_max payload ceiling. Like
+         object_max, this model has no supporting base under it in the
+         world (same convention already used above) - it is geometry for
+         IK/workspace analysis, not yet staged for a demo sequencer, so it
+         free-falls under gravity like object_max does until one exists.
+         ============================================================ -->
+    <model name="object_bimanual">
+      <pose>0.28 0 0.24 0 0 0</pose>
+      <link name="link">
+        <inertial>
+          <mass>0.50</mass>
+          <!-- Box (22x8x3 cm) + two 3cm-dia x 8cm handle posts at y=+-0.10,
+               uniform density (~780 kg/m^3), summed about the link origin
+               with the parallel-axis theorem. See docs/bimanual/IMPLEMENTATION.md
+               for the derivation this was checked against. -->
+          <inertia>
+            <ixx>0.001185</ixx><ixy>0</ixy><ixz>0</ixz>
+            <iyy>0.001744</iyy><iyz>0</iyz>
+            <izz>0.002773</izz>
+          </inertia>
+        </inertial>
+
+        <!-- Tray body connecting the two handles, 22 cm x 8 cm x 3 cm -->
+        <collision name="body_collision">
+          <geometry><box><size>0.22 0.08 0.03</size></box></geometry>
+        </collision>
+        <visual name="body_visual">
+          <geometry><box><size>0.22 0.08 0.03</size></box></geometry>
+          <material>
+            <ambient>0.20 0.30 0.45 1</ambient>
+            <diffuse>0.30 0.44 0.64 1</diffuse>
+          </material>
+        </visual>
+
+        <!-- Left handle post: 3 cm dia, 8 cm tall, centred on the grasp point -->
+        <collision name="handle_left_collision">
+          <pose>0 0.10 0 0 0 0</pose>
+          <geometry><cylinder><radius>0.015</radius><length>0.08</length></cylinder></geometry>
+          <surface>
+            <friction><ode><mu>1.6</mu><mu2>1.6</mu2></ode></friction>
+          </surface>
+        </collision>
+        <visual name="handle_left_visual">
+          <pose>0 0.10 0 0 0 0</pose>
+          <geometry><cylinder><radius>0.015</radius><length>0.08</length></cylinder></geometry>
+          <material>
+            <ambient>0.55 0.35 0.10 1</ambient>
+            <diffuse>0.82 0.54 0.16 1</diffuse>
+          </material>
+        </visual>
+
+        <!-- Right handle post: mirror of the left -->
+        <collision name="handle_right_collision">
+          <pose>0 -0.10 0 0 0 0</pose>
+          <geometry><cylinder><radius>0.015</radius><length>0.08</length></cylinder></geometry>
+          <surface>
+            <friction><ode><mu>1.6</mu><mu2>1.6</mu2></ode></friction>
+          </surface>
+        </collision>
+        <visual name="handle_right_visual">
+          <pose>0 -0.10 0 0 0 0</pose>
+          <geometry><cylinder><radius>0.015</radius><length>0.08</length></cylinder></geometry>
           <material>
             <ambient>0.55 0.35 0.10 1</ambient>
             <diffuse>0.82 0.54 0.16 1</diffuse>
